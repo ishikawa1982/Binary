@@ -10,6 +10,7 @@ import {
   levelCount,
   computeScore,
   randomTarget,
+  addWithCarry,
 } from "../js/logic.js";
 
 test("valueToBits produces MSB-first bit arrays", () => {
@@ -68,6 +69,19 @@ test("computeScore increases with streak and with speed", () => {
 
   // base score floor
   assert.equal(computeScore({ streak: 1, elapsedMs: 999999 }), 100);
+});
+
+test("addWithCarry splits a nibble sum into value and carry", () => {
+  // no carry
+  assert.deepEqual(addWithCarry(3, 5, 4), { value: 8, carry: 0 });
+  assert.deepEqual(addWithCarry(0, 15, 4), { value: 15, carry: 0 }); // reach F, no carry
+  // exactly one carry (F + 1 -> 0x10)
+  assert.deepEqual(addWithCarry(15, 1, 4), { value: 0, carry: 1 });
+  assert.deepEqual(addWithCarry(10, 8, 4), { value: 2, carry: 1 }); // 18 -> 0x12
+  // multiple carries
+  assert.deepEqual(addWithCarry(0, 32, 4), { value: 0, carry: 2 });
+  // 8-bit width
+  assert.deepEqual(addWithCarry(255, 1, 8), { value: 0, carry: 1 });
 });
 
 test("randomTarget stays within range for the given width", () => {

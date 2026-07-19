@@ -1,14 +1,14 @@
 {
-  "name": "ビットビルダー — 2進数・16進数パズル",
-  "short_name": "ビットビルダー",
-  "description": "ビットをタップしてお題の数字を作る、2進数・16進数の学習パズル。",
+  "name": "ビットゲーム — 2進数・16進数で遊ぶ",
+  "short_name": "ビットゲーム",
+  "description": "ビットをタップして数字を作る、2進数・16進数の学習ミニゲーム集。桁上がりでレベルアップするビットタワーほか。",
   "lang": "ja",
   "start_url": "./index.html",
   "scope": "./",
   "display": "standalone",
   "orientation": "portrait",
-  "background_color": "#0f172a",
-  "theme_color": "#0f172a",
+  "background_color": "#0b1020",
+  "theme_color": "#0b1020",
   "icons": [
     {
       "src": "icons/icon-192.png",

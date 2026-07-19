@@ -58,6 +58,15 @@ export function createBitRow(container, width, onChange) {
       }
       if (onChange) onChange(0, bits.slice());
     },
+    /** ビット列を任意の値にセットする(MSB→LSB)。 */
+    setValue(v) {
+      for (let i = 0; i < width; i++) {
+        bits[i] = (v >> (width - 1 - i)) & 1;
+        cells[i].dataset.on = String(bits[i]);
+        cells[i].textContent = String(bits[i]);
+      }
+      if (onChange) onChange(bitsToValue(bits), bits.slice());
+    },
     setEnabled(on) {
       cells.forEach((c) => (c.disabled = !on));
     },

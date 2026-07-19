@@ -137,3 +137,19 @@ export function randomTarget(width, rng = Math.random) {
   const max = 1 << width; // 2^width
   return Math.floor(rng() * max);
 }
+
+/**
+ * width ビットの桁に addend を足し、桁上がり（キャリー）を分離する。
+ * ビットタワーの加算クライムの心臓部。
+ * @param {number} current 現在の桁の値（0..2^width-1）
+ * @param {number} addend 加算する量（0 以上）
+ * @param {number} width 桁のビット幅
+ * @returns {{value:number, carry:number}}
+ *   value: この桁に残る値（(current+addend) mod 2^width）
+ *   carry: 上位桁へ繰り上がる回数（floor((current+addend)/2^width)）
+ */
+export function addWithCarry(current, addend, width) {
+  const mod = 1 << width;
+  const sum = current + addend;
+  return { value: sum % mod, carry: Math.floor(sum / mod) };
+}

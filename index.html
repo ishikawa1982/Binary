@@ -6,6 +6,7 @@
     <meta name="theme-color" content="#0b1020" />
     <meta name="description" content="2進数・16進数を楽しく学ぶミニゲーム集。ビットをタップして数字を作ろう。" />
     <title>ビットゲーム | 2進数・16進数で遊ぶ</title>
+    <link rel="manifest" href="manifest.webmanifest" />
     <link rel="icon" href="icons/icon.svg" type="image/svg+xml" />
     <link rel="apple-touch-icon" href="icons/icon-192.png" />
     <link rel="stylesheet" href="css/styles.css" />
@@ -16,7 +17,15 @@
         <h1 class="menu__title">ビットゲーム</h1>
         <p class="menu__sub">ビットをタップして数字を作る。2進数と16進数が遊びながら身につく。</p>
 
-        <a class="card card--a" href="blitz.html">
+        <a class="card card--a" href="tower.html">
+          <div class="card__emoji">🗼</div>
+          <div class="card__name">ビットタワー <span class="badge">おすすめ</span></div>
+          <div class="card__desc">
+            「＋N」を足していってビットを積み上げろ。桁がFを超えると桁上がりでレベルアップ！
+          </div>
+        </a>
+
+        <a class="card card--b" href="blitz.html">
           <div class="card__emoji">⚡</div>
           <div class="card__name">ビットブリッツ</div>
           <div class="card__desc">
@@ -24,18 +33,16 @@
           </div>
         </a>
 
-        <a class="card card--b" href="drop.html">
+        <a class="card card--c" href="drop.html">
           <div class="card__emoji">🧩</div>
           <div class="card__name">ビットドロップ</div>
           <div class="card__desc">
             落ちてくる数字ブロックを、着地前にスイッチを合わせて消せ。積むとゲームオーバー。
           </div>
         </a>
-
-        <p class="menu__sub" style="margin-top: 4px; font-size: 0.8rem">
-          ※ これは遊び比べ用の試作版です
-        </p>
       </main>
     </div>
+
+    <script type="module" src="js/pwa.js"></script>
   </body>
 </html>
