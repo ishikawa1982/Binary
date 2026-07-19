@@ -112,6 +112,17 @@ body {
   box-shadow: 0 0 0 3px color-mix(in srgb, var(--success) 70%, transparent);
 }
 
+/* チュートリアル:次に押すべきビットを光らせる */
+.bit__cell.hint-target {
+  animation: hintTarget 1s ease-in-out infinite;
+  box-shadow: 0 0 0 3px var(--accent), 0 0 20px color-mix(in srgb, var(--accent) 70%, transparent);
+}
+
+@keyframes hintTarget {
+  0%, 100% { box-shadow: 0 0 0 3px var(--accent); }
+  50% { box-shadow: 0 0 0 5px var(--accent), 0 0 26px color-mix(in srgb, var(--accent) 80%, transparent); }
+}
+
 /* 繰り上がりの連鎖:変化したビットを下の桁から順に光らせる */
 .bit__cell.ripple {
   animation: ripple 0.42s ease;
@@ -607,6 +618,37 @@ body {
   border-radius: 14px;
   padding: 6px 20px;
   box-shadow: 0 6px 22px color-mix(in srgb, var(--accent) 40%, transparent);
+}
+
+/* チュートリアルのコーチ吹き出し */
+.coach {
+  position: fixed;
+  left: 50%;
+  bottom: calc(16px + env(safe-area-inset-bottom));
+  transform: translateX(-50%);
+  width: min(92%, 440px);
+  z-index: 58;
+  background: var(--panel);
+  border: 1px solid var(--accent);
+  border-radius: 16px;
+  padding: 14px 16px;
+  box-shadow: 0 10px 40px rgba(0, 0, 0, 0.5);
+}
+
+.coach[hidden] {
+  display: none;
+}
+
+.coach__text {
+  margin: 0 0 10px;
+  font-size: 0.98rem;
+  line-height: 1.6;
+}
+
+.coach__row {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
 }
 
 .bigmsg {

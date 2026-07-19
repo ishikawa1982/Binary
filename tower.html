@@ -55,6 +55,14 @@
     <div class="screenflash" id="screenflash"></div>
     <div class="bigmsg" id="bigmsg" aria-hidden="true"></div>
 
+    <div class="coach" id="coach" hidden>
+      <p class="coach__text" id="coachText"></p>
+      <div class="coach__row">
+        <button class="btn" id="coachSkip" type="button">スキップ</button>
+        <button class="btn btn--primary" id="coachNext" type="button">つぎへ</button>
+      </div>
+    </div>
+
     <div class="overlay" id="overlay">
       <div class="overlay__big">🗼</div>
       <div class="overlay__title">ビットタワー</div>
@@ -63,6 +71,7 @@
         1111（F）まで来たら桁上がりでレベルアップ！
       </div>
       <button class="btn btn--primary" id="startBtn">スタート</button>
+      <button class="btn" id="tutBtn">あそびかた</button>
     </div>
 
     <script type="module" src="js/tower.js"></script>
