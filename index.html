@@ -3,66 +3,39 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
-    <meta name="theme-color" content="#0f172a" />
-    <meta
-      name="description"
-      content="二進数・16進数を手を動かして学べるパズルゲーム。ビットをタップしてお題の数字を作ろう。"
-    />
-    <title>ビットビルダー | 2進数・16進数パズル</title>
-    <link rel="manifest" href="manifest.webmanifest" />
+    <meta name="theme-color" content="#0b1020" />
+    <meta name="description" content="2進数・16進数を楽しく学ぶミニゲーム集。ビットをタップして数字を作ろう。" />
+    <title>ビットゲーム | 2進数・16進数で遊ぶ</title>
     <link rel="icon" href="icons/icon.svg" type="image/svg+xml" />
     <link rel="apple-touch-icon" href="icons/icon-192.png" />
     <link rel="stylesheet" href="css/styles.css" />
   </head>
   <body>
     <div class="app">
-      <header class="hud">
-        <div class="hud__item">
-          <span class="hud__label">レベル</span>
-          <span class="hud__value" id="level">1</span>
-        </div>
-        <div class="hud__item">
-          <span class="hud__label">スコア</span>
-          <span class="hud__value" id="score">0</span>
-        </div>
-        <div class="hud__item">
-          <span class="hud__label">連続</span>
-          <span class="hud__value" id="streak">0</span>
-        </div>
-        <div class="hud__item">
-          <span class="hud__label">ベスト</span>
-          <span class="hud__value" id="best">0</span>
-        </div>
-      </header>
+      <main class="menu">
+        <h1 class="menu__title">ビットゲーム</h1>
+        <p class="menu__sub">ビットをタップして数字を作る。2進数と16進数が遊びながら身につく。</p>
 
-      <main class="board">
-        <p class="board__prompt">この数字を作ろう</p>
-        <div class="target" id="target" aria-live="polite">0</div>
+        <a class="card card--a" href="blitz.html">
+          <div class="card__emoji">⚡</div>
+          <div class="card__name">ビットブリッツ</div>
+          <div class="card__desc">
+            制限時間内にお題を変換！コンボを繋いでハイスコアを狙う反射スコアアタック。
+          </div>
+        </a>
 
-        <div class="bits" id="bits" role="group" aria-label="ビット列"></div>
+        <a class="card card--b" href="drop.html">
+          <div class="card__emoji">🧩</div>
+          <div class="card__name">ビットドロップ</div>
+          <div class="card__desc">
+            落ちてくる数字ブロックを、着地前にスイッチを合わせて消せ。積むとゲームオーバー。
+          </div>
+        </a>
 
-        <div class="current" aria-live="polite">
-          <span class="current__label">いまの値</span>
-          <span class="current__value" id="current">0</span>
-        </div>
-
-        <div class="progress">
-          <div class="progress__bar" id="progress"></div>
-        </div>
+        <p class="menu__sub" style="margin-top: 4px; font-size: 0.8rem">
+          ※ これは遊び比べ用の試作版です
+        </p>
       </main>
-
-      <footer class="controls">
-        <label class="toggle">
-          <input type="checkbox" id="weightsToggle" checked />
-          <span>桁の重みを表示</span>
-        </label>
-        <button class="btn" id="clearBtn" type="button">クリア</button>
-      </footer>
     </div>
-
-    <div class="flash" id="flash" aria-hidden="true"></div>
-
-    <script type="module" src="js/game.js"></script>
-    <script type="module" src="js/pwa.js"></script>
   </body>
 </html>
