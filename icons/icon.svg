@@ -1,0 +1,13 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-label="ビットビルダー">
+  <rect width="512" height="512" rx="96" fill="#0f172a" />
+  <g font-family="system-ui, sans-serif" font-weight="800" text-anchor="middle">
+    <rect x="96" y="128" width="140" height="140" rx="28" fill="#334155" />
+    <text x="166" y="222" font-size="104" fill="#94a3b8">0</text>
+    <rect x="276" y="128" width="140" height="140" rx="28" fill="#facc15" />
+    <text x="346" y="222" font-size="104" fill="#1e293b">1</text>
+    <rect x="96" y="288" width="140" height="140" rx="28" fill="#facc15" />
+    <text x="166" y="382" font-size="104" fill="#1e293b">1</text>
+    <rect x="276" y="288" width="140" height="140" rx="28" fill="#334155" />
+    <text x="346" y="382" font-size="104" fill="#94a3b8">0</text>
+  </g>
+</svg>
