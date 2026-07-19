@@ -1,18 +1,12 @@
 // sw.js — アプリシェルをキャッシュしオフライン対応する Service Worker。
-const CACHE = "bitgame-v2";
+const CACHE = "bitcorinth-v3";
 const ASSETS = [
   "./",
   "./index.html",
-  "./tower.html",
-  "./blitz.html",
-  "./drop.html",
   "./css/styles.css",
   "./js/logic.js",
-  "./js/ui-bits.js",
   "./js/fx.js",
-  "./js/tower.js",
-  "./js/blitz.js",
-  "./js/drop.js",
+  "./js/corinth.js",
   "./js/pwa.js",
   "./manifest.webmanifest",
   "./icons/icon.svg",

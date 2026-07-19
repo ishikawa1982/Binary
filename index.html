@@ -4,8 +4,8 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
     <meta name="theme-color" content="#0b1020" />
-    <meta name="description" content="2進数・16進数を楽しく学ぶミニゲーム集。ビットをタップして数字を作ろう。" />
-    <title>ビットゲーム | 2進数・16進数で遊ぶ</title>
+    <meta name="description" content="玉を弾いてビットを立てるコリントゲーム。2進数・16進数と繰り上がりを物理で学ぶ。" />
+    <title>ビットコリント | 2進数・16進数で遊ぶ</title>
     <link rel="manifest" href="manifest.webmanifest" />
     <link rel="icon" href="icons/icon.svg" type="image/svg+xml" />
     <link rel="apple-touch-icon" href="icons/icon-192.png" />
@@ -13,36 +13,43 @@
   </head>
   <body>
     <div class="app">
-      <main class="menu">
-        <h1 class="menu__title">ビットゲーム</h1>
-        <p class="menu__sub">ビットをタップして数字を作る。2進数と16進数が遊びながら身につく。</p>
+      <div class="hud">
+        <div class="hud__block">
+          <span class="hud__label">スコア（値）</span>
+          <span class="hud__value" id="value">0</span>
+        </div>
+        <div class="hud__block" style="text-align: center">
+          <span class="hud__label">16進</span>
+          <span class="hud__value" id="hex">0x00</span>
+        </div>
+        <div class="hud__block" style="text-align: right">
+          <span class="hud__label">のこり玉</span>
+          <span class="hud__value" id="balls">10</span>
+        </div>
+      </div>
 
-        <a class="card card--a" href="tower.html">
-          <div class="card__emoji">🗼</div>
-          <div class="card__name">ビットタワー <span class="badge">おすすめ</span></div>
-          <div class="card__desc">
-            「＋N」を足していってビットを積み上げろ。桁がFを超えると桁上がりでレベルアップ！
-          </div>
-        </a>
+      <div class="board-wrap" id="boardWrap">
+        <canvas id="board"></canvas>
+      </div>
 
-        <a class="card card--b" href="blitz.html">
-          <div class="card__emoji">⚡</div>
-          <div class="card__name">ビットブリッツ</div>
-          <div class="card__desc">
-            制限時間内にお題を変換！コンボを繋いでハイスコアを狙う反射スコアアタック。
-          </div>
-        </a>
-
-        <a class="card card--c" href="drop.html">
-          <div class="card__emoji">🧩</div>
-          <div class="card__name">ビットドロップ</div>
-          <div class="card__desc">
-            落ちてくる数字ブロックを、着地前にスイッチを合わせて消せ。積むとゲームオーバー。
-          </div>
-        </a>
-      </main>
+      <p class="prompt">
+        押している間チャージ → 離して発射。左ほど高い桁（入りにくい）。同じ桁に2回入ると桁上げ！
+      </p>
     </div>
 
+    <div class="screenflash" id="screenflash"></div>
+    <div class="bigmsg" id="bigmsg" aria-hidden="true"></div>
+
+    <div class="overlay" id="overlay">
+      <div class="overlay__big">🎯</div>
+      <div class="overlay__title">ビットコリント</div>
+      <div class="overlay__stat" id="overlayText">
+        玉を10球弾いて、8ビットの値をできるだけ大きく！ 同じ桁に2回入ると桁上げ（繰り上がり）。
+      </div>
+      <button class="btn btn--primary" id="startBtn">スタート</button>
+    </div>
+
+    <script type="module" src="js/corinth.js"></script>
     <script type="module" src="js/pwa.js"></script>
   </body>
 </html>

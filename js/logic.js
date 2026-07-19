@@ -153,3 +153,18 @@ export function addWithCarry(current, addend, width) {
   const sum = current + addend;
   return { value: sum % mod, carry: Math.floor(sum / mod) };
 }
+
+/**
+ * コリントゲームの着弾:現在値に 2^bit を足す。
+ * 既にそのビットが立っていれば加算で自然に繰り上がりが起こる（2進の桁上げ）。
+ * width ビットを超えた分（>2^width-1）は最大値にキャップし overflow を立てる。
+ * @param {number} value 現在の値（0..2^width-1）
+ * @param {number} bit 着弾したビット位置（0=LSB）
+ * @param {number} [width=8]
+ * @returns {{value:number, overflow:boolean}}
+ */
+export function dropBall(value, bit, width = 8) {
+  const max = (1 << width) - 1;
+  const sum = value + (1 << bit);
+  return { value: Math.min(sum, max), overflow: sum > max };
+}

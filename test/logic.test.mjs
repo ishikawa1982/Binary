@@ -11,6 +11,7 @@ import {
   computeScore,
   randomTarget,
   addWithCarry,
+  dropBall,
 } from "../js/logic.js";
 
 test("valueToBits produces MSB-first bit arrays", () => {
@@ -82,6 +83,20 @@ test("addWithCarry splits a nibble sum into value and carry", () => {
   assert.deepEqual(addWithCarry(0, 32, 4), { value: 0, carry: 2 });
   // 8-bit width
   assert.deepEqual(addWithCarry(255, 1, 8), { value: 0, carry: 1 });
+});
+
+test("dropBall adds 2^bit, carries, and caps on overflow", () => {
+  // land on an empty low bit
+  assert.deepEqual(dropBall(0, 0), { value: 1, overflow: false });
+  assert.deepEqual(dropBall(0, 7), { value: 128, overflow: false });
+  // land where the bit is already set -> ripple carry (0b0011 + 1 = 0b0100)
+  assert.deepEqual(dropBall(0b0011, 0), { value: 0b0100, overflow: false });
+  assert.deepEqual(dropBall(0b0111, 0), { value: 0b1000, overflow: false });
+  // overflow past 8 bits caps at 255
+  assert.deepEqual(dropBall(255, 0), { value: 255, overflow: true });
+  assert.deepEqual(dropBall(200, 7), { value: 255, overflow: true }); // 200+128=328 -> cap
+  // custom width
+  assert.deepEqual(dropBall(0b1111, 0, 4), { value: 15, overflow: true });
 });
 
 test("randomTarget stays within range for the given width", () => {
