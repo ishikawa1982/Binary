@@ -1,10 +1,12 @@
-// tower.js — 主役ゲーム「ビットタワー」:加算クライム(桁上がり=レベルアップ)。
+// tower.js — 主役ゲーム「ビットタワー」:2進カウンター(＋1固定)。
+// ＋1 のたびに繰り上がりが下の桁から連鎖し、1111=F を超えると上の16進桁へ桁あふれ。
 import { addWithCarry } from "./logic.js";
 import { createBitRow } from "./ui-bits.js";
 import { success, fail, vibrate, screenFlash, beep } from "./fx.js";
 
 const WIDTH = 4;
 const BEST_KEY = "tower.best";
+const FMAX = (1 << WIDTH) - 1; // 15 = 0xF = 1111
 
 const els = {
   score: document.getElementById("score"),
@@ -26,16 +28,15 @@ const els = {
 
 const state = {
   phase: "ready", // ready | countdown | playing | result
-  floor: 0, // 繰り上がった上位桁の値(=(total-nibble)/16)
-  nibble: 0, // 確定済みの下位4bit(=16進の末桁)
-  addend: 1,
-  target: 0, // (nibble+addend)%16
+  floor: 0, // 繰り上がった上位桁の値（=（total-nibble)/16）
+  nibble: 0, // 確定済みの下位4bit（=16進の末桁 / カウンターの現在値）
+  target: 1, // つねに nibble+1 の下位4bit
   willCarry: 0,
   score: 0,
   combo: 1,
   lives: 3,
-  timePerRound: 10000,
-  remaining: 10000,
+  timePerRound: 5000,
+  remaining: 5000,
   lastFrame: 0,
   resolving: false,
   best: Number(localStorage.getItem(BEST_KEY) || 0),
@@ -48,11 +49,11 @@ function totalValue() {
 }
 
 function timeForFloor(floor) {
-  return Math.max(3500, 10000 - floor * 450);
+  return Math.max(2500, 5000 - floor * 300);
 }
 
 function onBitsChange(value) {
-  els.current.innerHTML = `この桁 <b>${value}</b>`;
+  els.current.innerHTML = `いまの入力 <b>${value}</b>`;
   const match = value === state.target;
   els.current.classList.toggle("match", state.phase === "playing" && match);
   if (state.phase === "playing" && !state.resolving && match) onCorrect();
@@ -75,8 +76,8 @@ function renderTotal(pulse) {
 }
 
 function renderChallenge() {
-  els.addchip.textContent = `＋${state.addend}`;
-  els.hint.textContent = `いまの桁 ${state.nibble} に ${state.addend} をたして作ろう`;
+  els.addchip.textContent = "＋1";
+  els.hint.textContent = `${state.nibble} の 2進を、1つ数えて作ろう`;
 }
 
 function renderHud() {
@@ -86,36 +87,60 @@ function renderHud() {
 }
 
 function newRound() {
-  const maxN = Math.min(9, 4 + state.floor); // フロアが上がるほど大きな加算も
-  state.addend = 1 + Math.floor(Math.random() * maxN);
-  const r = addWithCarry(state.nibble, state.addend, WIDTH);
+  const r = addWithCarry(state.nibble, 1, WIDTH);
   state.target = r.value;
   state.willCarry = r.carry;
   state.timePerRound = timeForFloor(state.floor);
   state.remaining = state.timePerRound;
   state.resolving = false;
   renderChallenge();
-  row.setValue(state.nibble); // 現在の桁からスタート
+  row.setValue(state.nibble); // 現在値からスタート → プレイヤーが +1 する
+}
+
+// 変化したビットを、下の桁(LSB)から順に光らせて「繰り上がりの連鎖」を見せる。
+function rippleCarry(prevNibble, newNibble) {
+  const changed = prevNibble ^ newNibble;
+  for (let p = 0; p < WIDTH; p++) {
+    if ((changed >> p) & 1) {
+      const cell = row.cells[WIDTH - 1 - p]; // p=0 が LSB
+      setTimeout(() => {
+        cell.classList.remove("ripple");
+        void cell.offsetWidth;
+        cell.classList.add("ripple");
+        setTimeout(() => cell.classList.remove("ripple"), 420);
+      }, p * 95);
+    }
+  }
 }
 
 function onCorrect() {
   state.resolving = true;
-  row.flashWin();
+  const prev = state.nibble;
   const carry = state.willCarry;
-  state.nibble = state.target;
+  const next = state.target;
+
+  rippleCarry(prev, next);
+  state.nibble = next;
   state.floor += carry;
 
   if (carry > 0) {
+    // 1111 → 桁あふれ:最上位の快感
     state.score += (100 + state.floor * 50) * state.combo;
     success(state.combo + 5);
-    vibrate([20, 40, 70]);
+    vibrate([20, 40, 80]);
     screenFlash("win");
-    showBigMsg(`桁上がり！ FLOOR ${state.floor + 1}`);
+    showBigMsg(`桁上がり！ 0x${totalValue().toString(16).toUpperCase()}`);
+  } else if (next === FMAX) {
+    // F(1111) 到達:1桁の最高値
+    state.score += FMAX * 5 * state.combo;
+    success(state.combo + 2);
+    vibrate([15, 30, 15]);
+    screenFlash("win");
+    showBigMsg("F！満タン");
   } else {
-    state.score += (state.target * 5 || 5) * state.combo;
+    state.score += next * 5 * state.combo;
     success(state.combo);
-    vibrate(20);
-    screenFlash("win");
+    vibrate(12);
   }
   state.combo += 1;
 
@@ -125,10 +150,11 @@ function onCorrect() {
   }
 
   renderHud();
-  renderTotal(carry > 0);
+  renderTotal(carry > 0 || next === FMAX);
+  const delay = carry > 0 ? 780 : next === FMAX ? 560 : 360;
   setTimeout(() => {
     if (state.phase === "playing") newRound();
-  }, carry > 0 ? 700 : 380);
+  }, delay);
 }
 
 function onTimeout() {
@@ -226,7 +252,7 @@ function endGame() {
   title.textContent = "ゲームオーバー";
   els.overlayText.style.display = "";
   els.overlayText.innerHTML =
-    `FLOOR <b>${state.floor + 1}</b>（0x${total.toString(16).toUpperCase()}）<br>` +
+    `到達 <b>0x${total.toString(16).toUpperCase()}</b>（${total}）<br>` +
     `SCORE <b>${state.score}</b> ／ BEST <b>${state.best}</b>`;
   els.startBtn.style.display = "";
   els.startBtn.textContent = "もう1回";

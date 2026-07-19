@@ -112,6 +112,21 @@ body {
   box-shadow: 0 0 0 3px color-mix(in srgb, var(--success) 70%, transparent);
 }
 
+/* 繰り上がりの連鎖:変化したビットを下の桁から順に光らせる */
+.bit__cell.ripple {
+  animation: ripple 0.42s ease;
+}
+
+@keyframes ripple {
+  0% { transform: scale(1); }
+  35% {
+    transform: scale(1.22) translateY(-6px);
+    box-shadow: 0 0 0 4px color-mix(in srgb, var(--success) 75%, transparent);
+    filter: brightness(1.5);
+  }
+  100% { transform: scale(1); }
+}
+
 @keyframes pop {
   0% { transform: scale(1); }
   40% { transform: scale(1.18); }
