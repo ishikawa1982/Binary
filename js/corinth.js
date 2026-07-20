@@ -32,6 +32,9 @@ let pegs = [];
 let dividers = [];
 let slotTop = 0;
 let binW = 0;
+let fieldW = 0; // ビット穴が並ぶ幅（発射レーンを除いた盤面）
+let laneW = 0; // 右端の発射/戻りレーン幅
+let laneWallX = 0; // レーン内側の仕切り壁 x（= fieldW）
 const PEG_R = 5;
 const BALL_R = 7;
 const GRAVITY = 0.3;
@@ -46,7 +49,6 @@ let ctrX = 0,
   ctrY = 0; // 右上コーナー円の中心
 let ctlX = 0,
   ctlY = 0; // 左上コーナー円の中心
-const LAUNCH_LANE = 34; // 右の発射レーン幅（ピンを置かない）
 
 const state = {
   phase: "idle", // idle | ready | charging | inplay | over
@@ -71,11 +73,16 @@ function resize() {
 }
 
 function layout() {
-  binW = W / BITS;
   const slotH = Math.min(84, H * 0.16);
   slotTop = H - slotH;
 
-  // スロットの仕切り（下部の縦壁）
+  // 右端に発射/戻りレーン。ビット穴はそれを除いた fieldW に8つ並べる。
+  laneW = Math.max(34, Math.min(48, W * 0.11));
+  fieldW = W - laneW;
+  laneWallX = fieldW;
+  binW = fieldW / BITS;
+
+  // スロットの仕切り（下部の縦壁）— フィールド内のみ
   dividers = [];
   for (let i = 1; i < BITS; i++) dividers.push(i * binW);
 
@@ -97,7 +104,7 @@ function layout() {
   let row = 0;
   for (let y = top; y <= bottom; y += rowGap, row++) {
     const off = row % 2 ? binW * 0.5 : 0;
-    for (let x = binW * 0.5 + off; x < W - LAUNCH_LANE; x += binW) {
+    for (let x = binW * 0.5 + off; x < fieldW - 6; x += binW) {
       pegs.push({ x, y });
     }
   }
@@ -105,7 +112,7 @@ function layout() {
 
 // --- ゲーム進行 ---
 function launchOrigin() {
-  return { x: W - frameInset - BALL_R - 3, y: slotTop - BALL_R - 2 };
+  return { x: fieldW + laneW / 2, y: slotTop - BALL_R - 2 };
 }
 
 function fire(charge) {
@@ -121,7 +128,7 @@ function fire(charge) {
     age: 0,
   };
   state.phase = "inplay";
-  state.ballsLeft -= 1;
+  // のこり玉はビット穴に着弾したときだけ減らす（戻り球は消費しない）
   state.charge = 0;
   beep(300 + c * 500, 0.08);
   vibrate(10);
@@ -143,12 +150,21 @@ function frameCollide(b) {
       b.vy = Math.abs(b.vy) * FRAME_REST;
     }
   } else {
+    // 外壁
     if (b.x > right) {
       b.x = right;
       b.vx = -Math.abs(b.vx) * FRAME_REST;
     } else if (b.x < left) {
       b.x = left;
       b.vx = Math.abs(b.vx) * FRAME_REST;
+    }
+    // 内側の仕切り壁（発射/戻りレーン ⇔ フィールド）。ctrY より下だけ塞ぐ。
+    if (b.x >= laneWallX && b.x - BALL_R < laneWallX) {
+      b.x = laneWallX + BALL_R;
+      b.vx = Math.abs(b.vx) * FRAME_REST;
+    } else if (b.x < laneWallX && b.x + BALL_R > laneWallX) {
+      b.x = laneWallX - BALL_R;
+      b.vx = -Math.abs(b.vx) * FRAME_REST;
     }
   }
 }
@@ -172,8 +188,17 @@ function arcConstrain(b, cx, cy) {
   }
 }
 
+// 玉が発射/戻りレーンの底に達した = 発射台に戻る。消費せず撃ち直せる。
+function returnBall() {
+  state.ball = null;
+  beep(180, 0.12, "sine", 0.04);
+  vibrate(8);
+  state.phase = "ready";
+}
+
 function settleBall(bit) {
   state.lastBit = bit;
+  state.ballsLeft -= 1; // ビット穴に入った時だけ消費
   const prev = state.value;
   const res = dropBall(prev, bit, BITS);
   state.value = res.value;
@@ -266,12 +291,15 @@ function step() {
 
   // 着地（最下部に到達、またはスロット内で静止、または長時間経過で強制確定）
   const landed = b.y >= H - BALL_R;
-  const restingInSlot = b.y > slotTop + 6 && Math.abs(b.vy) < 0.6 && Math.abs(b.vx) < 0.6;
+  const restingLow = b.y > slotTop + 6 && Math.abs(b.vy) < 0.6 && Math.abs(b.vx) < 0.6;
   const tooLong = b.age > 600; // ~10秒で強制確定（詰まり保険）
-  if (landed || restingInSlot || tooLong) {
-    const col = Math.max(0, Math.min(BITS - 1, Math.floor(b.x / binW)));
-    const bit = BITS - 1 - col; // 左端(col0)=MSB=bit7
-    settleBall(bit);
+  if (landed || restingLow || tooLong) {
+    if (b.x >= laneWallX) {
+      returnBall(); // 発射/戻りレーンの底 → 発射台に戻る（ビット穴に入らない）
+    } else {
+      const col = Math.max(0, Math.min(BITS - 1, Math.floor(b.x / binW)));
+      settleBall(BITS - 1 - col); // 左端(col0)=MSB=bit7
+    }
   }
 }
 
@@ -293,6 +321,17 @@ function draw() {
   ctx.arc(ctlX, ctlY, cornerR, -Math.PI / 2, -Math.PI, true); // 左上のRカーブ
   ctx.lineTo(leftX, slotTop); // 左の壁
   ctx.stroke();
+
+  // 発射/戻りレーンの内側の仕切り壁（ctrY より下）
+  ctx.beginPath();
+  ctx.moveTo(laneWallX, ctrY);
+  ctx.lineTo(laneWallX, H - 4);
+  ctx.stroke();
+
+  // 戻りガター（ビット穴ではない領域）
+  ctx.fillStyle = "#161d33";
+  roundRect(laneWallX + 3, slotTop + 2, W - laneWallX - 6, H - slotTop - 4, 8);
+  ctx.fill();
 
   // ピン
   ctx.fillStyle = "#4a5680";
