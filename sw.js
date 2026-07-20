@@ -1,5 +1,5 @@
 // sw.js — アプリシェルをキャッシュしオフライン対応する Service Worker。
-const CACHE = "bitcorinth-v3";
+const CACHE = "bitcorinth-v4";
 const ASSETS = [
   "./",
   "./index.html",

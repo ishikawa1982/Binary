@@ -3,7 +3,16 @@
 // 当たって跳ねる。弱いと上がって落ちて戻り、強いと上をぐるっと回って左(上位ビット)へ。
 // 入ったスロット(=ビット)が立ち、同じ桁に2回入ると桁上げ。10球の8ビット値がスコア。
 import { dropBall, valueToBits, formatHex, placeValues } from "./logic.js";
-import { success, fail, vibrate, screenFlash, beep } from "./fx.js";
+import {
+  success,
+  vibrate,
+  screenFlash,
+  beep,
+  startMusic,
+  stopMusic,
+  setMusicEnabled,
+  musicState,
+} from "./fx.js";
 
 const BITS = 8;
 const BALLS = 10;
@@ -35,6 +44,9 @@ let binW = 0;
 let fieldW = 0; // ビット穴が並ぶ幅（発射レーンを除いた盤面）
 let laneW = 0; // 右端の発射/戻りレーン幅
 let laneWallX = 0; // レーン内側の仕切り壁 x（= fieldW）
+let stars = []; // 背景の星
+const trail = []; // 玉の残像
+const particles = []; // 火花パーティクル
 const PEG_R = 5;
 const BALL_R = 7;
 const GRAVITY = 0.3;
@@ -96,7 +108,7 @@ function layout() {
   ctlY = frameTopY + cornerR;
 
   // ピン（千鳥格子）。上部を大きく空けて、回り込んだ玉が左まで飛べるように。
-  // 右端は発射レーンを空ける。
+  // 右端は発射レーンを空ける。左(上位ビット)側ほど釘を密にして難しく。
   pegs = [];
   const top = Math.max(ctrY + 40, slotTop - 200);
   const bottom = slotTop - 24;
@@ -107,6 +119,36 @@ function layout() {
     for (let x = binW * 0.5 + off; x < fieldW - 6; x += binW) {
       pegs.push({ x, y });
     }
+    // 左半分(上位側)は中間列を足して倍密度に
+    const off2 = off ? 0 : binW * 0.5;
+    for (let x = binW * 0.5 + off2; x < fieldW * 0.5; x += binW) {
+      pegs.push({ x, y: y + rowGap * 0.5 });
+    }
+  }
+  // ディフレクター釘:左上から右下への斜めライン。左に来た玉を右へ転がして
+  // 上位ビット(左)への直行を防ぐ。釘間はぎりぎり玉が抜けられる間隔(運が良ければ通る)。
+  const defN = 8;
+  const defX0 = frameInset + 12;
+  const defY0 = ctlY + 26;
+  for (let i = 0; i < defN; i++) {
+    pegs.push({ x: defX0 + i * binW * 0.62, y: defY0 + i * 15 });
+  }
+  // ガード釘:上位3スロット(bit7,6,5)の口の上に各2本
+  for (let col = 0; col < 3; col++) {
+    pegs.push({ x: col * binW + binW * 0.32, y: slotTop - 14 });
+    pegs.push({ x: col * binW + binW * 0.68, y: slotTop - 14 });
+  }
+
+  // 背景の星(パララックス用)
+  stars = [];
+  for (let i = 0; i < 40; i++) {
+    stars.push({
+      x: Math.random() * W,
+      y: Math.random() * H,
+      r: 0.5 + Math.random() * 1.3,
+      p: Math.random() * Math.PI * 2, // 明滅位相
+      s: 0.3 + Math.random() * 0.7, // 明滅速度
+    });
   }
 }
 
@@ -150,13 +192,13 @@ function frameCollide(b) {
       b.vy = Math.abs(b.vy) * FRAME_REST;
     }
   } else {
-    // 外壁
+    // 外壁(左壁は強めに弾いて、上位ビット側への張り付きを防ぐ)
     if (b.x > right) {
       b.x = right;
       b.vx = -Math.abs(b.vx) * FRAME_REST;
     } else if (b.x < left) {
       b.x = left;
-      b.vx = Math.abs(b.vx) * FRAME_REST;
+      b.vx = Math.abs(b.vx) * 0.85;
     }
     // 内側の仕切り壁（発射/戻りレーン ⇔ フィールド）。ctrY より下だけ塞ぐ。
     if (b.x >= laneWallX && b.x - BALL_R < laneWallX) {
@@ -188,9 +230,39 @@ function arcConstrain(b, cx, cy) {
   }
 }
 
+// 火花パーティクルを発生させる
+function spawnParticles(x, y, color, n) {
+  for (let i = 0; i < n; i++) {
+    const a = Math.random() * Math.PI * 2;
+    const sp = 1.5 + Math.random() * 3.5;
+    particles.push({
+      x,
+      y,
+      vx: Math.cos(a) * sp,
+      vy: Math.sin(a) * sp - 1.5,
+      life: 1,
+      decay: 0.02 + Math.random() * 0.03,
+      color,
+      r: 1.5 + Math.random() * 2,
+    });
+  }
+}
+
+function updateParticles() {
+  for (let i = particles.length - 1; i >= 0; i--) {
+    const p = particles[i];
+    p.vy += GRAVITY * 0.35;
+    p.x += p.vx;
+    p.y += p.vy;
+    p.life -= p.decay;
+    if (p.life <= 0) particles.splice(i, 1);
+  }
+}
+
 // 玉が発射/戻りレーンの底に達した = 発射台に戻る。消費せず撃ち直せる。
 function returnBall() {
   state.ball = null;
+  trail.length = 0;
   beep(180, 0.12, "sine", 0.04);
   vibrate(8);
   state.phase = "ready";
@@ -210,23 +282,30 @@ function settleBall(bit) {
     if ((changed >> p) & 1) state.flash[p] = now + p * 80;
   }
 
+  const px = state.ball ? state.ball.x : (BITS - 1 - bit) * binW + binW / 2;
+  const py = state.ball ? Math.min(state.ball.y, H - 20) : slotTop + 20;
   const carried = (prev >> bit) & 1; // 既に立っていた=桁上げ発生
   if (res.overflow) {
     showBigMsg("MAX! 0xFF");
     screenFlash("win");
     success(9);
     vibrate([20, 40, 80]);
+    spawnParticles(px, py, "#facc15", 40);
+    spawnParticles(px, py, "#22c55e", 24);
   } else if (carried) {
     showBigMsg("桁上がり！");
     screenFlash("win");
     success(6);
     vibrate([20, 40, 60]);
+    spawnParticles(px, py, "#22c55e", 28);
   } else {
     success(2);
     vibrate(15);
+    spawnParticles(px, py, "#facc15", 14);
   }
 
   state.ball = null;
+  trail.length = 0;
   renderHud();
 
   if (state.ballsLeft <= 0) {
@@ -240,6 +319,7 @@ function step() {
   if (state.phase === "charging") {
     state.charge = Math.min(1, state.charge + 0.9 / 60);
   }
+  updateParticles();
   const b = state.ball;
   if (!b || state.phase !== "inplay") return;
 
@@ -248,9 +328,14 @@ function step() {
   b.x += b.vx;
   b.y += b.vy;
 
-  // ピンの上などで止まりかけたら軽く突いて詰まりを防ぐ
+  // 残像トレイル
+  trail.push({ x: b.x, y: b.y });
+  if (trail.length > 14) trail.shift();
+
+  // ピンの上などで止まりかけたら軽く突いて詰まりを防ぐ(長引くほど強め・下向きに)
   if (Math.abs(b.vx) < 0.3 && Math.abs(b.vy) < 0.5) {
     b.vx += (Math.random() - 0.5) * 1.6;
+    if (b.age > 240) b.vy += 0.8;
   }
 
   // 台の枠
@@ -272,6 +357,7 @@ function step() {
         b.vx = (b.vx - 2 * dot * nx) * REST;
         b.vy = (b.vy - 2 * dot * ny) * REST;
         b.vx += (Math.random() - 0.5) * 0.3; // ほんの少し散らす
+        p.hit = performance.now(); // 発光パルス用
       }
     }
   } else {
@@ -292,7 +378,7 @@ function step() {
   // 着地（最下部に到達、またはスロット内で静止、または長時間経過で強制確定）
   const landed = b.y >= H - BALL_R;
   const restingLow = b.y > slotTop + 6 && Math.abs(b.vy) < 0.6 && Math.abs(b.vx) < 0.6;
-  const tooLong = b.age > 600; // ~10秒で強制確定（詰まり保険）
+  const tooLong = b.age > 420; // ~7秒で強制確定（詰まり保険）
   if (landed || restingLow || tooLong) {
     if (b.x >= laneWallX) {
       returnBall(); // 発射/戻りレーンの底 → 発射台に戻る（ビット穴に入らない）
@@ -304,15 +390,9 @@ function step() {
 }
 
 // --- 描画 ---
-function draw() {
-  ctx.clearRect(0, 0, W, H);
-
-  // 台の枠（右上・左上がRカーブの角丸フレーム。下は開放）
+function drawFramePath() {
   const rightX = W - frameInset;
   const leftX = frameInset;
-  ctx.strokeStyle = "#5b6690";
-  ctx.lineWidth = 3;
-  ctx.lineCap = "round";
   ctx.beginPath();
   ctx.moveTo(rightX, slotTop);
   ctx.lineTo(rightX, ctrY); // 右の壁
@@ -320,83 +400,203 @@ function draw() {
   ctx.lineTo(ctlX, frameTopY); // 天井
   ctx.arc(ctlX, ctlY, cornerR, -Math.PI / 2, -Math.PI, true); // 左上のRカーブ
   ctx.lineTo(leftX, slotTop); // 左の壁
+}
+
+function draw() {
+  const now = performance.now();
+
+  // 背景:縦グラデ＋明滅する星
+  const bgGrad = ctx.createLinearGradient(0, 0, 0, H);
+  bgGrad.addColorStop(0, "#101832");
+  bgGrad.addColorStop(0.55, "#0b1226");
+  bgGrad.addColorStop(1, "#070b18");
+  ctx.fillStyle = bgGrad;
+  ctx.fillRect(0, 0, W, H);
+  for (const st of stars) {
+    const tw = 0.25 + 0.55 * (0.5 + 0.5 * Math.sin(now * 0.001 * st.s + st.p));
+    ctx.fillStyle = `rgba(160,190,255,${tw})`;
+    ctx.beginPath();
+    ctx.arc(st.x, st.y, st.r, 0, Math.PI * 2);
+    ctx.fill();
+  }
+
+  // 台の枠:ネオン発光の二重ストローク
+  ctx.save();
+  ctx.lineCap = "round";
+  ctx.shadowColor = "#38bdf8";
+  ctx.shadowBlur = 14;
+  ctx.strokeStyle = "rgba(56,189,248,0.85)";
+  ctx.lineWidth = 3.5;
+  drawFramePath();
+  ctx.stroke();
+  ctx.shadowBlur = 0;
+  ctx.strokeStyle = "rgba(230,240,255,0.9)";
+  ctx.lineWidth = 1.2;
+  drawFramePath();
   ctx.stroke();
 
-  // 発射/戻りレーンの内側の仕切り壁（ctrY より下）
+  // レーン仕切り壁(同トーンのネオン)
+  ctx.shadowColor = "#7c3aed";
+  ctx.shadowBlur = 10;
+  ctx.strokeStyle = "rgba(167,139,250,0.8)";
+  ctx.lineWidth = 3;
   ctx.beginPath();
   ctx.moveTo(laneWallX, ctrY);
   ctx.lineTo(laneWallX, H - 4);
   ctx.stroke();
+  ctx.restore();
 
-  // 戻りガター（ビット穴ではない領域）
-  ctx.fillStyle = "#161d33";
+  // 戻りガター
+  ctx.fillStyle = "rgba(12,16,34,0.9)";
   roundRect(laneWallX + 3, slotTop + 2, W - laneWallX - 6, H - slotTop - 4, 8);
   ctx.fill();
 
-  // ピン
-  ctx.fillStyle = "#4a5680";
+  // 釘:金属質グラデ＋ヒット発光パルス
   for (const p of pegs) {
+    const hitAge = p.hit ? now - p.hit : Infinity;
+    if (hitAge < 260) {
+      const a = 1 - hitAge / 260;
+      ctx.fillStyle = `rgba(56,189,248,${0.55 * a})`;
+      ctx.beginPath();
+      ctx.arc(p.x, p.y, PEG_R + 6 * a, 0, Math.PI * 2);
+      ctx.fill();
+    }
+    const pg = ctx.createRadialGradient(p.x - 1.5, p.y - 1.5, 0.5, p.x, p.y, PEG_R);
+    pg.addColorStop(0, "#c7d4ff");
+    pg.addColorStop(0.5, "#6b7bb0");
+    pg.addColorStop(1, "#39456e");
+    ctx.fillStyle = pg;
     ctx.beginPath();
     ctx.arc(p.x, p.y, PEG_R, 0, Math.PI * 2);
     ctx.fill();
   }
 
-  // スロット（8ビット）
+  // スロット(8ビット):ON=金色に脈動、桁上げ連鎖=緑の波及発光
   const bits = valueToBits(state.value, BITS); // MSB→LSB
-  const now = performance.now();
+  const pulse = 0.5 + 0.5 * Math.sin(now * 0.005);
   for (let col = 0; col < BITS; col++) {
     const bit = BITS - 1 - col;
     const on = bits[col] === 1;
     const x = col * binW;
-    let bg = on ? "#facc15" : "#222c49";
     const ft = state.flash[bit];
+    let flashA = 0;
     if (ft != null) {
       const dt = now - ft;
-      if (dt >= 0 && dt < 420) bg = "#22c55e";
+      if (dt >= 0 && dt < 420) flashA = 1 - dt / 420;
       if (dt >= 420) delete state.flash[bit];
     }
-    ctx.fillStyle = bg;
+
+    ctx.save();
+    const cellGrad = ctx.createLinearGradient(0, slotTop, 0, H);
+    if (flashA > 0) {
+      cellGrad.addColorStop(0, "#34d97b");
+      cellGrad.addColorStop(1, "#15803d");
+      ctx.shadowColor = "#22c55e";
+      ctx.shadowBlur = 22 * flashA;
+    } else if (on) {
+      cellGrad.addColorStop(0, "#ffe066");
+      cellGrad.addColorStop(1, "#d99a06");
+      ctx.shadowColor = "#facc15";
+      ctx.shadowBlur = 10 + 8 * pulse;
+    } else {
+      cellGrad.addColorStop(0, "#1d2745");
+      cellGrad.addColorStop(1, "#141b33");
+      ctx.shadowBlur = 0;
+    }
+    ctx.fillStyle = cellGrad;
     roundRect(x + 2, slotTop + 2, binW - 4, H - slotTop - 4, 8);
     ctx.fill();
-    ctx.fillStyle = on ? "#1a1730" : "#8b97c4";
-    ctx.font = `700 ${Math.min(22, binW * 0.5)}px system-ui, sans-serif`;
+    ctx.restore();
+
     ctx.textAlign = "center";
     ctx.textBaseline = "middle";
+    ctx.fillStyle = on || flashA > 0 ? "#131022" : "#8b97c4";
+    ctx.font = `800 ${Math.min(22, binW * 0.5)}px system-ui, sans-serif`;
     ctx.fillText(on ? "1" : "0", x + binW / 2, slotTop + (H - slotTop) * 0.42);
-    ctx.fillStyle = on ? "#1a1730" : "#5b6690";
-    ctx.font = `600 ${Math.min(11, binW * 0.28)}px system-ui, sans-serif`;
+    ctx.fillStyle = on || flashA > 0 ? "rgba(19,16,34,0.75)" : "#5b6690";
+    ctx.font = `700 ${Math.min(11, binW * 0.28)}px system-ui, sans-serif`;
     ctx.fillText(String(WEIGHTS[col]), x + binW / 2, slotTop + (H - slotTop) * 0.8);
   }
 
-  // パワーメーター（右端の細バー）＋発射台
+  // パワーメーター:グラデ＋先端の明滅
   const o = launchOrigin();
   const meterTop = Math.max(frameTopY + 8, slotTop - 120);
   const meterBot = slotTop - 8;
-  ctx.fillStyle = "#2a3358";
+  ctx.fillStyle = "rgba(42,51,88,0.9)";
   roundRect(W - 6, meterTop, 4, meterBot - meterTop, 2);
   ctx.fill();
   if (state.phase === "charging" || state.charge > 0) {
     const h = (meterBot - meterTop) * state.charge;
-    ctx.fillStyle = state.charge > 0.75 ? "#ef4444" : "#38bdf8";
+    const mg = ctx.createLinearGradient(0, meterBot, 0, meterBot - h);
+    mg.addColorStop(0, "#38bdf8");
+    mg.addColorStop(1, state.charge > 0.75 ? "#ef4444" : "#a78bfa");
+    ctx.save();
+    ctx.shadowColor = state.charge > 0.75 ? "#ef4444" : "#38bdf8";
+    ctx.shadowBlur = 8 + 6 * pulse;
+    ctx.fillStyle = mg;
     roundRect(W - 6, meterBot - h, 4, h, 2);
     ctx.fill();
+    ctx.restore();
   }
-  ctx.fillStyle = "#7c3aed";
+
+  // プランジャー(ネオン三角)
+  ctx.save();
+  ctx.shadowColor = "#a78bfa";
+  ctx.shadowBlur = 12;
+  const plGrad = ctx.createLinearGradient(0, slotTop - 18, 0, slotTop);
+  plGrad.addColorStop(0, "#a78bfa");
+  plGrad.addColorStop(1, "#6d28d9");
+  ctx.fillStyle = plGrad;
   ctx.beginPath();
   ctx.moveTo(o.x - 9, slotTop - 2);
   ctx.lineTo(o.x + 9, slotTop - 2);
   ctx.lineTo(o.x, slotTop - 18);
   ctx.closePath();
   ctx.fill();
+  ctx.restore();
 
-  // 玉
-  if (state.ball) {
-    ctx.fillStyle = "#e6ecff";
+  // パーティクル(加算合成で火花らしく)
+  ctx.save();
+  ctx.globalCompositeOperation = "lighter";
+  for (const p of particles) {
+    ctx.globalAlpha = Math.max(0, p.life);
+    ctx.fillStyle = p.color;
     ctx.beginPath();
-    ctx.arc(state.ball.x, state.ball.y, BALL_R, 0, Math.PI * 2);
+    ctx.arc(p.x, p.y, p.r * p.life, 0, Math.PI * 2);
     ctx.fill();
+  }
+  ctx.restore();
+  ctx.globalAlpha = 1;
+
+  // 玉:残像トレイル＋光沢球
+  if (state.ball) {
+    ctx.save();
+    ctx.globalCompositeOperation = "lighter";
+    for (let i = 0; i < trail.length; i++) {
+      const t = trail[i];
+      const a = ((i + 1) / trail.length) * 0.35;
+      ctx.fillStyle = `rgba(140,200,255,${a})`;
+      ctx.beginPath();
+      ctx.arc(t.x, t.y, BALL_R * (0.4 + (0.6 * (i + 1)) / trail.length), 0, Math.PI * 2);
+      ctx.fill();
+    }
+    ctx.restore();
+
+    const b = state.ball;
+    ctx.save();
+    ctx.shadowColor = "#bfdbfe";
+    ctx.shadowBlur = 12;
+    const ballGrad = ctx.createRadialGradient(b.x - 2.5, b.y - 2.5, 1, b.x, b.y, BALL_R);
+    ballGrad.addColorStop(0, "#ffffff");
+    ballGrad.addColorStop(0.5, "#dbe6ff");
+    ballGrad.addColorStop(1, "#8fa3d9");
+    ctx.fillStyle = ballGrad;
+    ctx.beginPath();
+    ctx.arc(b.x, b.y, BALL_R, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.restore();
   } else if (state.phase === "ready") {
-    ctx.fillStyle = "rgba(230,236,255,0.6)";
+    ctx.fillStyle = "rgba(230,236,255,0.55)";
     ctx.beginPath();
     ctx.arc(o.x, o.y, BALL_R, 0, Math.PI * 2);
     ctx.fill();
@@ -441,12 +641,16 @@ function beginGame() {
   state.ball = null;
   state.charge = 0;
   state.flash = {};
+  trail.length = 0;
+  particles.length = 0;
   state.phase = "ready";
+  startMusic(); // ユーザー操作(スタートボタン)直後なので再生できる
   renderHud();
 }
 
 function endGame() {
   state.phase = "over";
+  stopMusic();
   if (state.value > state.best) {
     state.best = state.value;
     localStorage.setItem(BEST_KEY, String(state.best));
@@ -481,6 +685,26 @@ canvas.addEventListener("pointercancel", onUp);
 els.startBtn.addEventListener("click", beginGame);
 window.addEventListener("resize", resize);
 
+// BGMトグル(設定を保存)
+const MUSIC_KEY = "corinth.music";
+const musicBtn = document.getElementById("musicBtn");
+let musicOn = localStorage.getItem(MUSIC_KEY) !== "0";
+function renderMusicBtn() {
+  musicBtn.textContent = musicOn ? "🔊 BGM" : "🔇 BGM";
+}
+setMusicEnabled(musicOn);
+renderMusicBtn();
+musicBtn.addEventListener("click", () => {
+  musicOn = !musicOn;
+  localStorage.setItem(MUSIC_KEY, musicOn ? "1" : "0");
+  setMusicEnabled(musicOn);
+  // プレイ中にONへ戻したときは即再開
+  if (musicOn && (state.phase === "ready" || state.phase === "inplay" || state.phase === "charging")) {
+    startMusic();
+  }
+  renderMusicBtn();
+});
+
 // テスト用フック（物理に依存せず検証するため）
 window.__corinth = {
   fire: (c) => fire(c),
@@ -493,6 +717,7 @@ window.__corinth = {
     bx: state.ball ? Math.round(state.ball.x) : null,
     by: state.ball ? Math.round(state.ball.y) : null,
   }),
+  music: () => musicState(),
 };
 
 resize();
