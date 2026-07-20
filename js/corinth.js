@@ -1,6 +1,7 @@
 // corinth.js — コリントゲーム風「ビットコリント」。
-// 右の発射台からパチンコ式に玉を弾き、8つのスロット(=8ビット)に着弾させて値を大きくする。
-// 同じ桁に2回入ると桁上げ(繰り上がり)。10球撃ち切った時の8ビット値がスコア。
+// 右下の発射台から玉を上に弾く。玉は重力に従う自由物体で、台の枠(右上・左上はRカーブ)に
+// 当たって跳ねる。弱いと上がって落ちて戻り、強いと上をぐるっと回って左(上位ビット)へ。
+// 入ったスロット(=ビット)が立ち、同じ桁に2回入ると桁上げ。10球の8ビット値がスコア。
 import { dropBall, valueToBits, formatHex, placeValues } from "./logic.js";
 import { success, fail, vibrate, screenFlash, beep } from "./fx.js";
 
@@ -34,17 +35,18 @@ let binW = 0;
 const PEG_R = 5;
 const BALL_R = 7;
 const GRAVITY = 0.3;
-const REST = 0.7; // ピンの反発
-const WALL_REST = 0.32; // 壁は横の勢いを吸収（強い玉が跳ね返らず落ちる）
+const REST = 0.7; // ピン・仕切りの反発
+const FRAME_REST = 0.55; // 台の枠の反発（そこそこ弾む）
 
-// ガイドレール（右下から上って上部の頂点へ回り込むRカーブ）
-let railXR = 0; // 垂直区間のx（右端）
-let railYBottom = 0; // 発射位置のy（下端）
-let railCx = 0,
-  railCy = 0,
-  railR = 0; // 円弧の中心・半径
-let railLv = 0; // 垂直区間の長さ
-let railL = 0; // レール全長（垂直＋1/4円）
+// 台の枠（角丸長方形。上部の左右コーナーがRカーブ、下は開いてスロットへ）
+let frameInset = 6;
+let frameTopY = 0;
+let cornerR = 0;
+let ctrX = 0,
+  ctrY = 0; // 右上コーナー円の中心
+let ctlX = 0,
+  ctlY = 0; // 左上コーナー円の中心
+const LAUNCH_LANE = 34; // 右の発射レーン幅（ピンを置かない）
 
 const state = {
   phase: "idle", // idle | ready | charging | inplay | over
@@ -52,11 +54,8 @@ const state = {
   ballsLeft: BALLS,
   charge: 0,
   ball: null, // {x,y,vx,vy}
-  onRail: false, // レール上を滑走中か
-  railS: 0, // レール上の弧長位置
-  railV: 0, // レール上の速さ
   best: Number(localStorage.getItem(BEST_KEY) || 0),
-  flash: {}, // bit -> {t0} 繰り上がり連鎖の発光
+  flash: {}, // bit -> t0 繰り上がり連鎖の発光
   lastBit: -1,
 };
 
@@ -80,64 +79,47 @@ function layout() {
   dividers = [];
   for (let i = 1; i < BITS; i++) dividers.push(i * binW);
 
-  // ピン（千鳥格子）。上部は「空」にして玉が弧を描いて左へ届くようにし、
-  // 下半分にピンを置いて散らす。
+  // 枠（角丸長方形の上部）
+  frameInset = 6;
+  frameTopY = Math.max(10, H * 0.05);
+  cornerR = Math.min(W * 0.34, (slotTop - frameTopY) * 0.42);
+  ctrX = W - frameInset - cornerR;
+  ctrY = frameTopY + cornerR;
+  ctlX = frameInset + cornerR;
+  ctlY = frameTopY + cornerR;
+
+  // ピン（千鳥格子）。上部を大きく空けて、回り込んだ玉が左まで飛べるように。
+  // 右端は発射レーンを空ける。
   pegs = [];
-  const top = H * 0.46;
+  const top = Math.max(ctrY + 40, slotTop - 200);
   const bottom = slotTop - 24;
   const rowGap = Math.max(40, (bottom - top) / 4);
   let row = 0;
   for (let y = top; y <= bottom; y += rowGap, row++) {
     const off = row % 2 ? binW * 0.5 : 0;
-    for (let x = binW * 0.5 + off; x < W - 6; x += binW) {
+    for (let x = binW * 0.5 + off; x < W - LAUNCH_LANE; x += binW) {
       pegs.push({ x, y });
     }
   }
-
-  // ガイドレール:右端を垂直に上り、上部を1/4円で頂点(中央上)へ回り込むRカーブ。
-  railXR = W - 16;
-  railR = railXR * 0.5; // 頂点xがほぼ中央
-  railCx = railXR - railR; // 円の中心x（＝頂点x）
-  railYBottom = H - 28; // 発射位置
-  railCy = H * 0.12 + railR; // 頂点y = railCy - railR = H*0.12
-  railLv = railYBottom - railCy; // 垂直区間の長さ
-  railL = railLv + railR * (Math.PI / 2); // 全長（垂直＋1/4円）
 }
 
 // --- ゲーム進行 ---
 function launchOrigin() {
-  return { x: railXR, y: railYBottom };
-}
-
-// レール上の弧長 s → 位置と接線方向。
-function railPoint(s) {
-  if (s <= railLv) {
-    // 垂直区間（下→上）
-    return { x: railXR, y: railYBottom - s, tx: 0, ty: -1 };
-  }
-  // 1/4円区間（θ: 0 → -π/2、右端→頂点）
-  const theta = -(s - railLv) / railR;
-  return {
-    x: railCx + railR * Math.cos(theta),
-    y: railCy + railR * Math.sin(theta),
-    tx: Math.sin(theta), // 進行方向（θ減少）の接線
-    ty: -Math.cos(theta),
-    theta,
-  };
+  return { x: W - frameInset - BALL_R - 3, y: slotTop - BALL_R - 2 };
 }
 
 function fire(charge) {
   if (state.phase !== "ready" && state.phase !== "charging") return;
   const c = Math.max(0, Math.min(1, charge));
-  const p = railPoint(0);
-  state.ball = { x: p.x, y: p.y, vx: 0, vy: 0 };
-  state.onRail = true;
-  state.railS = 0;
-  // 速さは実寸から算出:弱=垂直区間を登り切って円弧の入口で失速(右/下位)、
-  // 強=頂点を越えて左端(上位)。円弧上の失速位置で全ビットへ滑らかに対応する。
-  const clearV = Math.sqrt(2 * GRAVITY * railLv); // 円弧入口にちょうど届く
-  const apexV = Math.sqrt(2 * GRAVITY * (railLv + railR)); // 頂点にちょうど届く
-  state.railV = clearV + c * (apexV * 1.25 - clearV);
+  const o = launchOrigin();
+  const s = H / 560;
+  state.ball = {
+    x: o.x,
+    y: o.y,
+    vx: (Math.random() - 0.5) * 0.5,
+    vy: -(12 + 12 * c) * s, // 真上に弾く。ごく弱い=上がって落ちて戻る、強い=上を回って左へ
+    age: 0,
+  };
   state.phase = "inplay";
   state.ballsLeft -= 1;
   state.charge = 0;
@@ -146,36 +128,48 @@ function fire(charge) {
   renderHud();
 }
 
-// レール離脱:自由落下へ移行。
-function detach(vx, vy) {
-  state.onRail = false;
-  state.ball.vx = vx;
-  state.ball.vy = vy;
+// 角丸長方形の枠との衝突（左右の壁・天井・上部の丸コーナー）。
+function frameCollide(b) {
+  const left = frameInset + BALL_R;
+  const right = W - frameInset - BALL_R;
+  const ceil = frameTopY + BALL_R;
+  if (b.y < ctrY) {
+    if (b.x > ctrX) {
+      arcConstrain(b, ctrX, ctrY);
+    } else if (b.x < ctlX) {
+      arcConstrain(b, ctlX, ctlY);
+    } else if (b.y < ceil) {
+      b.y = ceil;
+      b.vy = Math.abs(b.vy) * FRAME_REST;
+    }
+  } else {
+    if (b.x > right) {
+      b.x = right;
+      b.vx = -Math.abs(b.vx) * FRAME_REST;
+    } else if (b.x < left) {
+      b.x = left;
+      b.vx = Math.abs(b.vx) * FRAME_REST;
+    }
+  }
 }
 
-function railStep() {
-  const b = state.ball;
-  const p = railPoint(state.railS);
-  // 接線方向の重力成分で加減速（登りは減速、頂点付近で0）
-  const at = GRAVITY * (0 * p.tx + 1 * p.ty); // = GRAVITY * ty
-  state.railV += at;
-  if (state.railV <= 0) {
-    // 失速 → その場から落下（右側＝下位ビット寄り）
-    detach(0, 0.5);
-    return;
+// コーナー円の内側に閉じ込める（外側へ出たら法線反射）。
+function arcConstrain(b, cx, cy) {
+  const dx = b.x - cx;
+  const dy = b.y - cy;
+  const d = Math.hypot(dx, dy) || 1;
+  const maxD = cornerR - BALL_R;
+  if (d > maxD) {
+    const nx = dx / d;
+    const ny = dy / d;
+    b.x = cx + nx * maxD;
+    b.y = cy + ny * maxD;
+    const dot = b.vx * nx + b.vy * ny;
+    if (dot > 0) {
+      b.vx = (b.vx - 2 * dot * nx) * FRAME_REST;
+      b.vy = (b.vy - 2 * dot * ny) * FRAME_REST;
+    }
   }
-  state.railS += state.railV;
-  if (state.railS >= railL) {
-    // 頂点に到達 → 接線（ほぼ左向き）×速さで飛び出す
-    const end = railPoint(railL);
-    b.x = end.x;
-    b.y = end.y;
-    detach(end.tx * state.railV, Math.max(0.4, end.ty * state.railV));
-    return;
-  }
-  const np = railPoint(state.railS);
-  b.x = np.x;
-  b.y = np.y;
 }
 
 function settleBall(bit) {
@@ -222,71 +216,62 @@ function step() {
     state.charge = Math.min(1, state.charge + 0.9 / 60);
   }
   const b = state.ball;
-  if (b && state.phase === "inplay" && state.onRail) {
-    railStep();
-    return;
+  if (!b || state.phase !== "inplay") return;
+
+  b.age = (b.age || 0) + 1;
+  b.vy += GRAVITY;
+  b.x += b.vx;
+  b.y += b.vy;
+
+  // ピンの上などで止まりかけたら軽く突いて詰まりを防ぐ
+  if (Math.abs(b.vx) < 0.3 && Math.abs(b.vy) < 0.5) {
+    b.vx += (Math.random() - 0.5) * 1.6;
   }
-  if (b && state.phase === "inplay") {
-    b.vy += GRAVITY;
-    b.x += b.vx;
-    b.y += b.vy;
 
-    // 壁（横の勢いを吸収 = 強い玉が跳ね返らず左に落ちる）
-    if (b.x < BALL_R) {
-      b.x = BALL_R;
-      b.vx = Math.abs(b.vx) * WALL_REST;
-    }
-    if (b.x > W - BALL_R) {
-      b.x = W - BALL_R;
-      b.vx = -Math.abs(b.vx) * WALL_REST;
-    }
-    if (b.y < BALL_R) {
-      b.y = BALL_R;
-      b.vy = Math.abs(b.vy) * WALL_REST;
-    }
+  // 台の枠
+  frameCollide(b);
 
-    // スロット領域より上ではピンに当たる
-    if (b.y < slotTop) {
-      for (const p of pegs) {
-        const dx = b.x - p.x;
-        const dy = b.y - p.y;
-        const d = Math.hypot(dx, dy);
-        const min = BALL_R + PEG_R;
-        if (d > 0 && d < min) {
-          const nx = dx / d;
-          const ny = dy / d;
-          // 押し出し
-          b.x = p.x + nx * min;
-          b.y = p.y + ny * min;
-          // 反射
-          const dot = b.vx * nx + b.vy * ny;
-          b.vx = (b.vx - 2 * dot * nx) * REST;
-          b.vy = (b.vy - 2 * dot * ny) * REST;
-          // ほんの少しの散らし
-          b.vx += (Math.random() - 0.5) * 0.3;
-        }
+  // スロット領域より上ではピンに当たる
+  if (b.y < slotTop) {
+    for (const p of pegs) {
+      const dx = b.x - p.x;
+      const dy = b.y - p.y;
+      const d = Math.hypot(dx, dy);
+      const min = BALL_R + PEG_R;
+      if (d > 0 && d < min) {
+        const nx = dx / d;
+        const ny = dy / d;
+        b.x = p.x + nx * min;
+        b.y = p.y + ny * min;
+        const dot = b.vx * nx + b.vy * ny;
+        b.vx = (b.vx - 2 * dot * nx) * REST;
+        b.vy = (b.vy - 2 * dot * ny) * REST;
+        b.vx += (Math.random() - 0.5) * 0.3; // ほんの少し散らす
       }
-    } else {
-      // スロット内は仕切り壁で誘導
-      for (const dx0 of dividers) {
-        if (Math.abs(b.x - dx0) < BALL_R) {
-          if (b.x < dx0) {
-            b.x = dx0 - BALL_R;
-            b.vx = -Math.abs(b.vx) * REST;
-          } else {
-            b.x = dx0 + BALL_R;
-            b.vx = Math.abs(b.vx) * REST;
-          }
+    }
+  } else {
+    // スロット内は仕切り壁で誘導
+    for (const dx0 of dividers) {
+      if (Math.abs(b.x - dx0) < BALL_R) {
+        if (b.x < dx0) {
+          b.x = dx0 - BALL_R;
+          b.vx = -Math.abs(b.vx) * REST;
+        } else {
+          b.x = dx0 + BALL_R;
+          b.vx = Math.abs(b.vx) * REST;
         }
       }
     }
+  }
 
-    // 着地
-    if (b.y >= H - BALL_R) {
-      const col = Math.max(0, Math.min(BITS - 1, Math.floor(b.x / binW)));
-      const bit = BITS - 1 - col; // 左端(col0)=MSB=bit7
-      settleBall(bit);
-    }
+  // 着地（最下部に到達、またはスロット内で静止、または長時間経過で強制確定）
+  const landed = b.y >= H - BALL_R;
+  const restingInSlot = b.y > slotTop + 6 && Math.abs(b.vy) < 0.6 && Math.abs(b.vx) < 0.6;
+  const tooLong = b.age > 600; // ~10秒で強制確定（詰まり保険）
+  if (landed || restingInSlot || tooLong) {
+    const col = Math.max(0, Math.min(BITS - 1, Math.floor(b.x / binW)));
+    const bit = BITS - 1 - col; // 左端(col0)=MSB=bit7
+    settleBall(bit);
   }
 }
 
@@ -294,14 +279,19 @@ function step() {
 function draw() {
   ctx.clearRect(0, 0, W, H);
 
-  // ガイドレール（Rカーブ）
+  // 台の枠（右上・左上がRカーブの角丸フレーム。下は開放）
+  const rightX = W - frameInset;
+  const leftX = frameInset;
   ctx.strokeStyle = "#5b6690";
   ctx.lineWidth = 3;
   ctx.lineCap = "round";
   ctx.beginPath();
-  ctx.moveTo(railXR, railYBottom);
-  ctx.lineTo(railXR, railCy); // 垂直区間
-  ctx.arc(railCx, railCy, railR, 0, -Math.PI / 2, true); // 右端→頂点の1/4円
+  ctx.moveTo(rightX, slotTop);
+  ctx.lineTo(rightX, ctrY); // 右の壁
+  ctx.arc(ctrX, ctrY, cornerR, 0, -Math.PI / 2, true); // 右上のRカーブ
+  ctx.lineTo(ctlX, frameTopY); // 天井
+  ctx.arc(ctlX, ctlY, cornerR, -Math.PI / 2, -Math.PI, true); // 左上のRカーブ
+  ctx.lineTo(leftX, slotTop); // 左の壁
   ctx.stroke();
 
   // ピン
@@ -319,9 +309,7 @@ function draw() {
     const bit = BITS - 1 - col;
     const on = bits[col] === 1;
     const x = col * binW;
-    // セル背景
     let bg = on ? "#facc15" : "#222c49";
-    // 繰り上がり連鎖の発光
     const ft = state.flash[bit];
     if (ft != null) {
       const dt = now - ft;
@@ -331,37 +319,34 @@ function draw() {
     ctx.fillStyle = bg;
     roundRect(x + 2, slotTop + 2, binW - 4, H - slotTop - 4, 8);
     ctx.fill();
-    // 0/1
     ctx.fillStyle = on ? "#1a1730" : "#8b97c4";
     ctx.font = `700 ${Math.min(22, binW * 0.5)}px system-ui, sans-serif`;
     ctx.textAlign = "center";
     ctx.textBaseline = "middle";
     ctx.fillText(on ? "1" : "0", x + binW / 2, slotTop + (H - slotTop) * 0.42);
-    // 重み
     ctx.fillStyle = on ? "#1a1730" : "#5b6690";
     ctx.font = `600 ${Math.min(11, binW * 0.28)}px system-ui, sans-serif`;
     ctx.fillText(String(WEIGHTS[col]), x + binW / 2, slotTop + (H - slotTop) * 0.8);
   }
 
-  // パワーメーター（スロットの上・右端。スロットに被らない位置）
+  // パワーメーター（右端の細バー）＋発射台
   const o = launchOrigin();
-  const meterTop = Math.max(20, slotTop - 120);
-  const meterBot = slotTop - 10;
+  const meterTop = Math.max(frameTopY + 8, slotTop - 120);
+  const meterBot = slotTop - 8;
   ctx.fillStyle = "#2a3358";
-  roundRect(W - 15, meterTop, 9, meterBot - meterTop, 5);
+  roundRect(W - 6, meterTop, 4, meterBot - meterTop, 2);
   ctx.fill();
   if (state.phase === "charging" || state.charge > 0) {
     const h = (meterBot - meterTop) * state.charge;
     ctx.fillStyle = state.charge > 0.75 ? "#ef4444" : "#38bdf8";
-    roundRect(W - 14, meterBot - h, 7, h, 4);
+    roundRect(W - 6, meterBot - h, 4, h, 2);
     ctx.fill();
   }
-  // 発射台（小さなプランジャー）
   ctx.fillStyle = "#7c3aed";
   ctx.beginPath();
-  ctx.moveTo(o.x - 9, H - 5);
-  ctx.lineTo(o.x + 9, H - 5);
-  ctx.lineTo(o.x, H - 22);
+  ctx.moveTo(o.x - 9, slotTop - 2);
+  ctx.lineTo(o.x + 9, slotTop - 2);
+  ctx.lineTo(o.x, slotTop - 18);
   ctx.closePath();
   ctx.fill();
 
@@ -372,7 +357,6 @@ function draw() {
     ctx.arc(state.ball.x, state.ball.y, BALL_R, 0, Math.PI * 2);
     ctx.fill();
   } else if (state.phase === "ready") {
-    // 次弾のプレビュー
     ctx.fillStyle = "rgba(230,236,255,0.6)";
     ctx.beginPath();
     ctx.arc(o.x, o.y, BALL_R, 0, Math.PI * 2);
@@ -467,7 +451,6 @@ window.__corinth = {
     ballsLeft: state.ballsLeft,
     phase: state.phase,
     lastBit: state.lastBit,
-    onRail: state.onRail,
     bx: state.ball ? Math.round(state.ball.x) : null,
     by: state.ball ? Math.round(state.ball.y) : null,
   }),
