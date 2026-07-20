@@ -37,12 +37,24 @@ const GRAVITY = 0.3;
 const REST = 0.7; // ピンの反発
 const WALL_REST = 0.32; // 壁は横の勢いを吸収（強い玉が跳ね返らず落ちる）
 
+// ガイドレール（右下から上って上部の頂点へ回り込むRカーブ）
+let railXR = 0; // 垂直区間のx（右端）
+let railYBottom = 0; // 発射位置のy（下端）
+let railCx = 0,
+  railCy = 0,
+  railR = 0; // 円弧の中心・半径
+let railLv = 0; // 垂直区間の長さ
+let railL = 0; // レール全長（垂直＋1/4円）
+
 const state = {
   phase: "idle", // idle | ready | charging | inplay | over
   value: 0,
   ballsLeft: BALLS,
   charge: 0,
   ball: null, // {x,y,vx,vy}
+  onRail: false, // レール上を滑走中か
+  railS: 0, // レール上の弧長位置
+  railV: 0, // レール上の速さ
   best: Number(localStorage.getItem(BEST_KEY) || 0),
   flash: {}, // bit -> {t0} 繰り上がり連鎖の発光
   lastBit: -1,
@@ -81,30 +93,89 @@ function layout() {
       pegs.push({ x, y });
     }
   }
+
+  // ガイドレール:右端を垂直に上り、上部を1/4円で頂点(中央上)へ回り込むRカーブ。
+  railXR = W - 16;
+  railR = railXR * 0.5; // 頂点xがほぼ中央
+  railCx = railXR - railR; // 円の中心x（＝頂点x）
+  railYBottom = H - 28; // 発射位置
+  railCy = H * 0.12 + railR; // 頂点y = railCy - railR = H*0.12
+  railLv = railYBottom - railCy; // 垂直区間の長さ
+  railL = railLv + railR * (Math.PI / 2); // 全長（垂直＋1/4円）
 }
 
 // --- ゲーム進行 ---
 function launchOrigin() {
-  return { x: W - 20, y: H - 30 };
+  return { x: railXR, y: railYBottom };
+}
+
+// レール上の弧長 s → 位置と接線方向。
+function railPoint(s) {
+  if (s <= railLv) {
+    // 垂直区間（下→上）
+    return { x: railXR, y: railYBottom - s, tx: 0, ty: -1 };
+  }
+  // 1/4円区間（θ: 0 → -π/2、右端→頂点）
+  const theta = -(s - railLv) / railR;
+  return {
+    x: railCx + railR * Math.cos(theta),
+    y: railCy + railR * Math.sin(theta),
+    tx: Math.sin(theta), // 進行方向（θ減少）の接線
+    ty: -Math.cos(theta),
+    theta,
+  };
 }
 
 function fire(charge) {
   if (state.phase !== "ready" && state.phase !== "charging") return;
-  const o = launchOrigin();
   const c = Math.max(0, Math.min(1, charge));
-  const s = H / 560; // 画面サイズでスケール
-  state.ball = {
-    x: o.x,
-    y: o.y,
-    vx: -(0.6 + 7.6 * c) * s, // 弱=ほぼ真下(右/下位)、強=左端(上位)
-    vy: -(10.5 + 9.0 * c) * s, // 滞空。左への到達距離を調整
-  };
+  const p = railPoint(0);
+  state.ball = { x: p.x, y: p.y, vx: 0, vy: 0 };
+  state.onRail = true;
+  state.railS = 0;
+  // 速さは実寸から算出:弱=垂直区間を登り切って円弧の入口で失速(右/下位)、
+  // 強=頂点を越えて左端(上位)。円弧上の失速位置で全ビットへ滑らかに対応する。
+  const clearV = Math.sqrt(2 * GRAVITY * railLv); // 円弧入口にちょうど届く
+  const apexV = Math.sqrt(2 * GRAVITY * (railLv + railR)); // 頂点にちょうど届く
+  state.railV = clearV + c * (apexV * 1.25 - clearV);
   state.phase = "inplay";
   state.ballsLeft -= 1;
   state.charge = 0;
   beep(300 + c * 500, 0.08);
   vibrate(10);
   renderHud();
+}
+
+// レール離脱:自由落下へ移行。
+function detach(vx, vy) {
+  state.onRail = false;
+  state.ball.vx = vx;
+  state.ball.vy = vy;
+}
+
+function railStep() {
+  const b = state.ball;
+  const p = railPoint(state.railS);
+  // 接線方向の重力成分で加減速（登りは減速、頂点付近で0）
+  const at = GRAVITY * (0 * p.tx + 1 * p.ty); // = GRAVITY * ty
+  state.railV += at;
+  if (state.railV <= 0) {
+    // 失速 → その場から落下（右側＝下位ビット寄り）
+    detach(0, 0.5);
+    return;
+  }
+  state.railS += state.railV;
+  if (state.railS >= railL) {
+    // 頂点に到達 → 接線（ほぼ左向き）×速さで飛び出す
+    const end = railPoint(railL);
+    b.x = end.x;
+    b.y = end.y;
+    detach(end.tx * state.railV, Math.max(0.4, end.ty * state.railV));
+    return;
+  }
+  const np = railPoint(state.railS);
+  b.x = np.x;
+  b.y = np.y;
 }
 
 function settleBall(bit) {
@@ -151,6 +222,10 @@ function step() {
     state.charge = Math.min(1, state.charge + 0.9 / 60);
   }
   const b = state.ball;
+  if (b && state.phase === "inplay" && state.onRail) {
+    railStep();
+    return;
+  }
   if (b && state.phase === "inplay") {
     b.vy += GRAVITY;
     b.x += b.vx;
@@ -217,8 +292,17 @@ function step() {
 
 // --- 描画 ---
 function draw() {
-  const css = getComputedStyle(document.documentElement);
   ctx.clearRect(0, 0, W, H);
+
+  // ガイドレール（Rカーブ）
+  ctx.strokeStyle = "#5b6690";
+  ctx.lineWidth = 3;
+  ctx.lineCap = "round";
+  ctx.beginPath();
+  ctx.moveTo(railXR, railYBottom);
+  ctx.lineTo(railXR, railCy); // 垂直区間
+  ctx.arc(railCx, railCy, railR, 0, -Math.PI / 2, true); // 右端→頂点の1/4円
+  ctx.stroke();
 
   // ピン
   ctx.fillStyle = "#4a5680";
@@ -378,7 +462,15 @@ window.addEventListener("resize", resize);
 window.__corinth = {
   fire: (c) => fire(c),
   dropAt: (bit) => settleBall(bit),
-  state: () => ({ value: state.value, ballsLeft: state.ballsLeft, phase: state.phase, lastBit: state.lastBit }),
+  state: () => ({
+    value: state.value,
+    ballsLeft: state.ballsLeft,
+    phase: state.phase,
+    lastBit: state.lastBit,
+    onRail: state.onRail,
+    bx: state.ball ? Math.round(state.ball.x) : null,
+    by: state.ball ? Math.round(state.ball.y) : null,
+  }),
 };
 
 resize();
